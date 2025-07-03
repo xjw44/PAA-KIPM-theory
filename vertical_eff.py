@@ -310,30 +310,43 @@ def compareVerticalSideway(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir,
     "l_a": np.sqrt(d_diffuse*tau_trap), "eff_list": 0}])
 
 def main():
-    plot_dir = "output/2025-5-12-testdiffusion"
-    # diffuse_constant_plot(plot_dir, data_sum_config.diffusion_constant_summary)
+    # plot_dir = "output/2025-5-12-testdiffusion"
+    # # diffuse_constant_plot(plot_dir, data_sum_config.diffusion_constant_summary)
 
+    # ld = 300*1e-6 # m
+    # d_diffuse = 0.02 #m^2/s
+    # tau_decay = ld**2/d_diffuse #s
+    # la = 500*1e-6 # m
+    # tau_trap = la**2/d_diffuse # m/s
+    # # l_abs = 100*1e-6 # m
+    # # l_abs = ld/1000 # m
+    # l_abs_list = np.linspace(ld/1000, ld*2, 100)
+    # plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir, 
+    #     thickness_config=data_sum_config.scdms_film_thickness_lambdas)
+
+    # # t_abs = 600*1e-9 # m
+    # # t_abs_list = np.linspace(t_abs/60, t_abs*10, 100)
+    # # # trap_eff = getTrapeff(tau_decay, tau_trap, d_diffuse, t_abs)
+    # # plotTrappEff(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir, "vertical")
+
+    # # t_abs = 600*1e-9 # m
+    # # t_abs_list = np.linspace(t_abs/60, t_abs*10, 100)
+    # # # trap_eff = getTrapeff(tau_decay, tau_trap, d_diffuse, t_abs)
+    # # plotTrappEff(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir, "sideway")
+
+##############################################
+##############################################
+##############################################
+    plot_dir = "output/2025-7-3-diffusion-eff"
     ld = 300*1e-6 # m
     d_diffuse = 0.02 #m^2/s
     tau_decay = ld**2/d_diffuse #s
     la = 500*1e-6 # m
     tau_trap = la**2/d_diffuse # m/s
-    # l_abs = 100*1e-6 # m
-    # l_abs = ld/1000 # m
+    print(tau_decay, tau_trap)
     l_abs_list = np.linspace(ld/1000, ld*2, 100)
     plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir, 
         thickness_config=data_sum_config.scdms_film_thickness_lambdas)
-
-    # t_abs = 600*1e-9 # m
-    # t_abs_list = np.linspace(t_abs/60, t_abs*10, 100)
-    # # trap_eff = getTrapeff(tau_decay, tau_trap, d_diffuse, t_abs)
-    # plotTrappEff(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir, "vertical")
-
-    # t_abs = 600*1e-9 # m
-    # t_abs_list = np.linspace(t_abs/60, t_abs*10, 100)
-    # # trap_eff = getTrapeff(tau_decay, tau_trap, d_diffuse, t_abs)
-    # plotTrappEff(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir, "sideway")
-
 
 if __name__ == "__main__":
     main()
