@@ -5,6 +5,11 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
+
+plt.rc('font', size=16)  # Set the global default font size
+
 # def diffusion_eff(alpha, beta): 
 #     numer = 2*math.sinh(alpha)*(beta+math.tanh(alpha))
 #     denom_1 = 2*alpha*beta*math.cosh(alpha)
@@ -118,9 +123,13 @@ def getListEff(d_diffuse, tau_decay, tau_trap, l_abs_list, uselambdas=False,
     # alpha_list = alpha_func(l_abs_list, d_diffuse, tau_decay)
     # beta = beta_func(tau_trap, tau_decay)
     lambda_d_list, lambda_a_list = lambda_func(l_abs_list, d_diffuse, tau_decay, tau_trap)
+    l_d_scaled = l_d
+    l_a_scaled = l_a
     if uselambdas:
-        lambda_d_list = l_d*thickness/thickness_default/l_abs_list
-        lambda_a_list = l_a*(thickness**2)/(thickness_default**2)/l_abs_list
+        l_d_scaled = l_d*thickness/thickness_default
+        l_a_scaled = l_a*(thickness**2)/(thickness_default**2)
+        lambda_d_list = l_d_scaled/l_abs_list
+        lambda_a_list = l_a_scaled/l_abs_list
 
     eff_list = []
     # for alpha in alpha_list: 
@@ -129,29 +138,49 @@ def getListEff(d_diffuse, tau_decay, tau_trap, l_abs_list, uselambdas=False,
         eff_list.append(eff)
 
     eff_list = np.asarray(eff_list)
-    return eff_list
+    return eff_list, l_d_scaled, l_a_scaled
+
+def targetEff(df):
+    """
+    Given a DataFrame with 'l_abs_list' and 'eff_list' columns,
+    returns a Series of efficiencies (in %) at l_abs ≈ 100 nm for all rows.
+    """
+    target = 100  # 100 nm in µm
+
+    def get_eff(row):
+        l_abs_um = np.array(row["l_abs_list"]) * 1e6     # convert m to µm
+        eff_percent = np.array(row["eff_list"]) * 100    # convert to %
+        idx = np.argmin(np.abs(l_abs_um - target))
+        return eff_percent[idx]
+
+    return df.apply(get_eff, axis=1)
 
 def loopThroughEffs(ax, df, thickness=False): 
     colors = ['red', 'blue', 'pink']
     df = df.reset_index(drop=True)
+    df["eff_at_target"] = targetEff(df)
+
     for idx, row in df.iterrows():
         if not thickness: 
+            label_long = fr"$\tau_{{decay}}=${row["tau_decay"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+ \
+                fr"$\tau_{{trap}}=${row["tau_trap"]*1e6:.3g} $\mathrm{{\mu}}s$"+"\n"+ \
+                fr"D={row["d_diffuse"]} $\mathrm{{m^2}}$/s"+"\n"+ \
+                fr"$\eta_{{d}}$={row["eff_at_target"]:.1f}$\%$"+"\n" \
+                fr"$w_{{over}}$={row["l_kid"]*1e6:.0f} $\mathrm{{\mu m}}$"+"\n"
             ax.plot(row["l_abs_list"]*1e6, row["eff_list"]*100, marker='o', 
-                label=fr"$\tau_{{decay}}=${row["tau_decay"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+
-                fr"$\tau_{{trap}}=${row["tau_trap"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+
-                fr"D={row["d_diffuse"]} $\mathrm{{m^2}}$/s"+"\n"+
-                fr"$l_{{kid}}$={row["l_kid"]*1e6:.0f} $\mathrm{{\mu}}m$"+"\n"+
-                fr"abs thickess = 600 nm", 
+                label=label_long, 
                 color=colors[idx])
         else: 
             if isinstance(row["thickness"], str):
                 thickness = eval(row["thickness"])
             else: 
                 thickness = row["thickness"]
+            label_long=fr"$l_{{a}}=${row["l_a_scaled"]*1e6:.1f} $\mathrm{{\mu}}m$"+"\n"+ \
+            fr"$l_{{d}}=${row["l_d_scaled"]*1e6:.1f} $\mathrm{{\mu}}m$"+"\n"+ \
+            fr"$t_{{abs}}=${thickness*1e9:.0f} nm"+"\n"+\
+            fr"$\eta_{{d}}$={row["eff_at_target"]:.1f}$\%$"+"\n"
             ax.plot(row["l_abs_list"]*1e6, row["eff_list"]*100, marker='o', 
-            label=fr"$l_{{a}}=${row["l_a"]*1e6:.2g} $\mathrm{{\mu}}m$"+"\n"+
-            fr"$l_{{d}}=${row["l_d"]*1e6:.2g} $\mathrm{{\mu}}m$"+"\n"+
-            fr"abs thickess = {thickness*1e9:.0f} nm", 
+            label=label_long, 
             color=colors[idx])
     ax.set_xlabel(r'$l_{abs}$ ($\mu$m)')
     ax.set_ylabel('QP diffusion efficiency (%)')
@@ -163,7 +192,7 @@ def loopThroughEffs(ax, df, thickness=False):
 def plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir,
     thickness=600*1e-9, # m
     l_kid=100*1e-6, # m
-    thickness_config=""
+    l_over=5*1e-6, # m
     ): 
     vary_list = [0.1, 10]
     add_kid_length = [1*1e-6, 10*1e-6] # m
@@ -173,7 +202,9 @@ def plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir,
     "tau_trap": tau_trap, "l_abs_list": l_abs_list, 
     "thickness": thickness, "l_kid": l_kid, 
     "l_d": np.sqrt(d_diffuse*tau_decay), 
-    "l_a": np.sqrt(d_diffuse*tau_trap), "eff_list": 0}])
+    "l_a": np.sqrt(d_diffuse*tau_trap), "eff_list": 0, 
+    "l_d_scaled": 0, 
+    "l_a_scaled": 0}])
 
     scaled_dfs = []
     for vary in vary_list:
@@ -196,17 +227,19 @@ def plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir,
     df_all_effs = pd.concat([df_scaled, df_default], ignore_index=True)
     df_all_effs['eff_list'] = df_all_effs['eff_list'].astype(object)
     for idx, row in df_all_effs.iterrows():
-        eff_list_row = getListEff(row["d_diffuse"], 
-            row["tau_decay"], row["tau_trap"], row["l_abs_list"])
+        eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
+            row["tau_decay"], row["tau_trap"], row["l_abs_list"], l_d=row["l_d"], l_a=row["l_a"])
         if row["l_kid"] !=l_kid:
-            eff_list_row = getListEff(row["d_diffuse"], 
+            eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
                 row["tau_decay"], row["tau_trap"]/row["l_kid"]*l_kid, row["l_abs_list"])
         elif row["thickness"] !=thickness:
-            eff_list_row = getListEff(row["d_diffuse"], 
+            eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
                 row["tau_decay"], row["tau_trap"], row["l_abs_list"], 
                 uselambdas=True, 
                 thickness=row["thickness"], l_d=row["l_d"], l_a=row["l_a"])
         df_all_effs.at[idx, 'eff_list'] = eff_list_row
+        df_all_effs.at[idx, 'l_d_scaled'] = l_d_scaled
+        df_all_effs.at[idx, 'l_a_scaled'] = l_a_scaled
     print(df_all_effs)
 
     df_diffuse = df_all_effs[(df_all_effs['tau_decay'] == tau_decay) 
@@ -238,21 +271,25 @@ def plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir,
     loopThroughEffs(axes[0,2], df_thickness, thickness=True)
 
     # Save figure
-    os.makedirs(plot_dir, exist_ok=True)
+    save_dir = os.path.dirname(plot_dir)
+    if save_dir:  # avoid error if save_path is just a filename
+        os.makedirs(save_dir, exist_ok=True)
     plt.tight_layout()
-    plt.savefig(plot_dir+"/diffuse_eff_all"+".pdf", dpi=300, bbox_inches='tight')
-    plt.savefig(plot_dir+"/diffuse_eff_all"+".png", dpi=300, bbox_inches='tight')
+    plt.savefig(plot_dir+".pdf", dpi=300, bbox_inches='tight')
+    plt.savefig(plot_dir+".png", dpi=300, bbox_inches='tight')
     plt.close()
+
     return True
 
 def loopThroughTrapEffs(ax, df, plot_name): 
     colors = ['red', 'blue', 'pink']
     df = df.reset_index(drop=True)
     for idx, row in df.iterrows():
+        label_long = fr"$\tau_{{decay}}=${row["tau_decay"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+ \
+            fr"$\tau_{{trap}}=${row["tau_trap"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+ \
+            fr"D={row["d_diffuse"]} $\mathrm{{m^2}}$/s"
         ax.plot(row["t_abs_list"]*1e9, row["eff_list"]*100, marker='o', 
-            label=fr"$\tau_{{decay}}=${row["tau_decay"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+
-            fr"$\tau_{{trap}}=${row["tau_trap"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+
-            fr"D={row["d_diffuse"]} $\mathrm{{m^2}}$/s", 
+            label=label_long, 
             color=colors[idx])
     ax.set_xlabel(r'$t_{abs}$ (nm)')
     ax.set_ylabel('QP trapping efficiency (%)')
@@ -302,13 +339,6 @@ def plotTrappEff(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir, plot_name
     plt.close()
     return True
 
-def compareVerticalSideway(d_diffuse, tau_decay, tau_trap, t_abs_list, plot_dir, plot_name): 
-    df_default = pd.DataFrame([{"d_diffuse": d_diffuse, "tau_decay": tau_decay, 
-    "tau_trap": tau_trap, "l_abs_list": l_abs_list, 
-    "thickness": thickness, "l_kid": l_kid, 
-    "l_d": np.sqrt(d_diffuse*tau_decay), 
-    "l_a": np.sqrt(d_diffuse*tau_trap), "eff_list": 0}])
-
 def main():
     # plot_dir = "output/2025-5-12-testdiffusion"
     # # diffuse_constant_plot(plot_dir, data_sum_config.diffusion_constant_summary)
@@ -337,7 +367,7 @@ def main():
 ##############################################
 ##############################################
 ##############################################
-    plot_dir = "output/2025-7-3-diffusion-eff"
+    plot_dir = "output/2025-7-3-diffusion-eff/"
     ld = 300*1e-6 # m
     d_diffuse = 0.02 #m^2/s
     tau_decay = ld**2/d_diffuse #s
@@ -345,8 +375,9 @@ def main():
     tau_trap = la**2/d_diffuse # m/s
     print(tau_decay, tau_trap)
     l_abs_list = np.linspace(ld/1000, ld*2, 100)
-    plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir, 
-        thickness_config=data_sum_config.scdms_film_thickness_lambdas)
+
+    title = 'check_eff_changes_overlap_w'
+    plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir+title)
 
 if __name__ == "__main__":
     main()
