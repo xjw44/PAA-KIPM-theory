@@ -75,12 +75,12 @@ diffusion_constant_summary = {
 },
 }
 
-scdms_film_thickness_lambdas = {
-"900*1e-9": { #m
-    "la_m": 1250*1e-6, # m
-    "ld_m": 500*1e-6, # m
-},
-"300*1e-9": {
-    "la_m": 200*1e-6,
-    "ld_m": 200*1e-6,
-}}
+# scdms_film_thickness_lambdas = {
+# "900*1e-9": { #m
+#     "la_m": 1250*1e-6, # m
+#     "ld_m": 500*1e-6, # m
+# },
+# "300*1e-9": {
+#     "la_m": 200*1e-6,
+#     "ld_m": 200*1e-6,
+# }}
