@@ -429,7 +429,7 @@ def main():
     la = 13.9*1e-6 # m
     tau_trap = la**2/d_diffuse_scaled # m/s
     print(d_diffuse_scaled, tau_decay, tau_trap)
-    l_abs_list = np.linspace(ld/1000, ld*2, 100)
+    l_abs_list = np.linspace(ld/1000, ld, 100)
 
     # title = 'check_second_diffusion'
     title = 'check_second_diffusion_5mum'

@@ -4,6 +4,19 @@ import data_sum_config
 import matplotlib.pyplot as plt
 import os
 import pandas as pd
+import diffuse_config
+from matplotlib.ticker import LogLocator
+from matplotlib.ticker import FixedLocator
+from matplotlib.ticker import LogLocator, LogFormatter
+
+# integrate diffusion
+from scipy import integrate
+import numpy as np
+
+# plot tau_s 
+from scipy.constants import hbar, electron_volt
+import math
+from scipy.constants import Boltzmann, e
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', None)
@@ -92,8 +105,8 @@ def plot2DEff(eff_array, l_over_array, w_over_array, plot_dir,
 
     # mark max
     long_label = rf"{eff_max:.1f}%@"+"\n"+ \
-        rf"$l_{{over}}$={l_over_max*1e6:.1f}$\mathrm{{\mu m}}$"+"\n"+ \
-        rf"$w_{{over}}$={w_over_max*1e6:.1f}$\mathrm{{\mu m}}$"+"\n"+ \
+        rf"$l_{{over}}$={l_over_max*1e6:.1f} $\mathrm{{\mu m}}$"+"\n"+ \
+        rf"$w_{{over}}$={w_over_max*1e6:.1f} $\mathrm{{\mu m}}$"+"\n"+ \
         fr"$\tau_{{decay}}^{{abs}}=${param_dict_abs["tau_decay"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+ \
         fr"$\tau_{{decay}}^{{over}}=${param_dict_over["tau_decay_over"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+ \
         fr"$\tau_{{trap,\,0}}^{{abs}}=${param_dict_abs["tau_trap"]*1e6:.3g} $\mathrm{{\mu}}s$"+"\n"+ \
@@ -122,166 +135,125 @@ def plot2DEff(eff_array, l_over_array, w_over_array, plot_dir,
 
     return eff_array
 
-def targetEff(df, target_l=100):
-    """
-    Given a DataFrame with 'l_abs_list' and 'eff_list' columns,
-    returns a Series of efficiencies (in %) at l_abs ≈ 100 nm for all rows.
-    # target_l = 100 µm
-    """
+def plotTau_a(plot_dir, tau_a_ref_mus, ref_thickness_nm): 
+    plt.figure(figsize=(8, 6))
+    thickness = np.linspace(0, 1000, 1000) # nm
+    tau_a = tau_a_ref_mus*(thickness/ref_thickness_nm)**3
+    plt.plot(thickness, tau_a)
 
-    def get_eff(row):
-        l_abs_um = np.array(row["l_abs_list"]) * 1e6     # convert m to µm
-        eff_percent = np.array(row["eff_list"]) * 100    # convert to %
-        idx = np.argmin(np.abs(l_abs_um - target_l))
-        return eff_percent[idx]
+    # Mark vertical lines at specific thicknesses
+    for t_val in [100, 600]:
+        tau_val = tau_a_ref_mus * (t_val / ref_thickness_nm)**3
+        plt.axvline(t_val, color='red', linestyle='--')
+        plt.plot(t_val, tau_val, 'ro', label=rf'$\tau_{{trap}}$={tau_val:.2f} $\mu$s @ {t_val:.1f} nm')
 
-    return df.apply(get_eff, axis=1)
+    # Mark each tau_target with vertical & horizontal lines
+    for tau_target in [0.35]:
+        thickness_target = ref_thickness_nm * (tau_target / tau_a_ref_mus)**(1/3)
+        plt.plot(thickness_target, tau_target, 'bo', 
+            label=rf'$\tau_{{trap}}$={tau_target:.2f} $\mu$s @ {thickness_target:.1f} nm')
+        plt.axhline(tau_target, color='blue', linestyle=':')
 
-def loopThroughEffs(ax, df, thickness=False): 
-    colors = ['red', 'blue', 'pink']
-    df = df.reset_index(drop=True)
-    df["eff_at_target"] = targetEff(df, target_l)
-
-    for idx, row in df.iterrows():
-        if not thickness: 
-            label_long = fr"$\tau_{{decay}}=${row["tau_decay"]*1e6:.2g} $\mathrm{{\mu}}s$"+"\n"+ \
-                fr"$\tau_{{trap}}=${row["tau_trap"]*1e6:.3g} $\mathrm{{\mu}}s$"+"\n"+ \
-                fr"D={row["d_diffuse"]:.2g} $\mathrm{{m^2}}$/s"+"\n"+ \
-                fr"$\eta_{{d}}$={row["eff_at_target"]:.1f}$\%$"+"\n" \
-                fr"$w_{{over}}$={row["w_over"]*1e6:.0f} $\mathrm{{\mu m}}$"+"\n"\
-                # fr"$l_{{over}}$={row["l_over"]*1e6:.0f} $\mathrm{{\mu m}}$"+"\n"
-            ax.plot(row["l_abs_list"]*1e6, row["eff_list"]*100, marker='o', 
-                label=label_long, 
-                color=colors[idx])
-        else: 
-            if isinstance(row["thickness"], str):
-                thickness = eval(row["thickness"])
-            else: 
-                thickness = row["thickness"]
-            label_long=fr"$l_{{a}}=${row["l_a_scaled"]*1e6:.1f} $\mathrm{{\mu}}m$"+"\n"+ \
-            fr"$l_{{d}}=${row["l_d_scaled"]*1e6:.1f} $\mathrm{{\mu}}m$"+"\n"+ \
-            fr"$t_{{abs}}=${thickness*1e9:.0f} nm"+"\n"+\
-            fr"$\eta_{{d}}$={row["eff_at_target"]:.1f}$\%$"+"\n"
-            ax.plot(row["l_abs_list"]*1e6, row["eff_list"]*100, marker='o', 
-            label=label_long, 
-            color=colors[idx])
-    ax.set_xlabel(r'$l_{abs}$ ($\mu$m)')
-    ax.set_ylabel('QP diffusion efficiency (%)')
-    ax.set_title('QP diffusion')
-    ax.grid(True)
-    # ax.axvline(x=target_l, label=rf'$l_{{abs}}$={target_l} $\mu$m', color='black')
-    ax.axvline(x=target_l, label=rf'$l_{{over}}$={target_l} $\mu$m', color='black')
-    ax.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-
-def plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir,
-    thickness=600*1e-9, # m
-    w_abs=100*1e-6, # m
-    l_over=5*1e-6, # m
-    ): 
-    vary_list = [0.1, 10]
-    add_kid_length = [10*1e-6, 100*1e-6] # m
-    vary_thickness = [100*1e-9, 1000*1e-9]
-    vary_overlap_w = [1*1e-6, 20*1e-6]
-
-    df_default = pd.DataFrame([{"d_diffuse": d_diffuse, "tau_decay": tau_decay, 
-    "tau_trap": tau_trap, "l_abs_list": l_abs_list, 
-    "thickness": thickness, "w_over": w_abs,  "l_over": l_over, 
-    "l_d": np.sqrt(d_diffuse*tau_decay), 
-    "l_a": np.sqrt(d_diffuse*tau_trap), "eff_list": 0, 
-    "l_d_scaled": 0, 
-    "l_a_scaled": 0}])
-
-    scaled_dfs = []
-    # for vary in vary_list:
-    #     for var in ["d_diffuse", "tau_decay", "tau_trap"]:
-    #         df_scaled = df_default.copy()
-    #         df_scaled[var] = df_scaled[var] * vary
-    #         scaled_dfs.append(df_scaled)
-
-    for l_kid_short in add_kid_length:
-        df_scaled = df_default.copy()
-        df_scaled["w_over"] = l_kid_short
-        scaled_dfs.append(df_scaled)
-
-    # for l_over_short in vary_overlap_w:
-    #     df_scaled = df_default.copy()
-    #     df_scaled["l_over"] = l_over_short
-    #     scaled_dfs.append(df_scaled)
-
-    # for thick in vary_thickness:
-    #     df_scaled = df_default.copy()
-    #     df_scaled["thickness"] = thick
-    #     scaled_dfs.append(df_scaled)
-
-    df_scaled = pd.concat(scaled_dfs, ignore_index=True)
-    df_all_effs = pd.concat([df_scaled, df_default], ignore_index=True)
-    df_all_effs['eff_list'] = df_all_effs['eff_list'].astype(object)
-    for idx, row in df_all_effs.iterrows():
-        eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
-            row["tau_decay"], row["tau_trap"], row["l_abs_list"], l_d=row["l_d"], l_a=row["l_a"])
-        if row["w_over"] !=w_abs:
-            # eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
-            #     row["tau_decay"], row["tau_trap"]/row["w_over"]*w_abs, row["l_abs_list"])
-            eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
-                row["tau_decay"], row["tau_trap"]*row["w_over"]/w_abs, row["l_abs_list"])
-        elif row["thickness"] !=thickness:
-            eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
-                row["tau_decay"], row["tau_trap"], row["l_abs_list"], 
-                uselambdas=True, 
-                thickness=row["thickness"], l_d=row["l_d"], l_a=row["l_a"])
-        elif row["l_over"] !=l_over:
-            eff_list_row, l_d_scaled, l_a_scaled = getListEff(row["d_diffuse"], 
-                row["tau_decay"], row["tau_trap"]/row["l_over"]*l_over, row["l_abs_list"])
-        df_all_effs.at[idx, 'eff_list'] = eff_list_row
-        df_all_effs['l_d_scaled'] = df_all_effs['l_d_scaled'].astype(float)
-        df_all_effs['l_a_scaled'] = df_all_effs['l_a_scaled'].astype(float)
-        df_all_effs.at[idx, 'l_d_scaled'] = l_d_scaled
-        df_all_effs.at[idx, 'l_a_scaled'] = l_a_scaled
-    print(df_all_effs)
-
-    df_diffuse = df_all_effs[(df_all_effs['tau_decay'] == tau_decay) 
-        & (df_all_effs['tau_trap'] == tau_trap)
-        & (df_all_effs['w_over'] == w_abs)
-        & (df_all_effs['thickness'] == thickness)
-        & (df_all_effs['l_over'] == l_over)]
-    df_decay = df_all_effs[(df_all_effs['d_diffuse'] == d_diffuse) 
-        & (df_all_effs['tau_trap'] == tau_trap)
-        & (df_all_effs['w_over'] == w_abs)
-        & (df_all_effs['thickness'] == thickness)
-        & (df_all_effs['l_over'] == l_over)]
-    df_trap = df_all_effs[(df_all_effs['d_diffuse'] == d_diffuse) 
-        & (df_all_effs['tau_decay'] == tau_decay)
-        & (df_all_effs['w_over'] == w_abs)
-        & (df_all_effs['thickness'] == thickness)
-        & (df_all_effs['l_over'] == l_over)]
-    df_trans = df_all_effs[(df_all_effs['d_diffuse'] == d_diffuse) 
-        & (df_all_effs['tau_decay'] == tau_decay)
-        & (df_all_effs['tau_trap'] == tau_trap)
-        & (df_all_effs['thickness'] == thickness)
-        & (df_all_effs['l_over'] == l_over)]
-    df_thickness = df_all_effs[(df_all_effs['d_diffuse'] == d_diffuse) 
-        & (df_all_effs['tau_decay'] == tau_decay)
-        & (df_all_effs['tau_trap'] == tau_trap)
-        & (df_all_effs['w_over'] == w_abs)
-        & (df_all_effs['l_over'] == l_over)]
-    df_over = df_all_effs[(df_all_effs['d_diffuse'] == d_diffuse) 
-        & (df_all_effs['tau_decay'] == tau_decay)
-        & (df_all_effs['tau_trap'] == tau_trap)
-        & (df_all_effs['thickness'] == thickness)
-        & (df_all_effs['w_over'] == w_abs)]
-
-    fig, axes = plt.subplots(2, 3, figsize=(30, 12))
-    # loopThroughEffs(axes[0,0], df_diffuse)
-    # loopThroughEffs(axes[0,1], df_decay)
-    # loopThroughEffs(axes[1,0], df_trap)
-    loopThroughEffs(axes[1,1], df_trans)
-    # loopThroughEffs(axes[1,2], df_over)
-    # loopThroughEffs(axes[0,2], df_thickness, thickness=True)
-
+    plt.xlabel('thickness (nm)')
+    plt.ylabel(r'$\tau_{trap}$ ($\mu$s)')
+    plt.title(r'expected $\tau_{trap}$')
+    plt.grid(True)
+    
     # Save figure
     save_dir = os.path.dirname(plot_dir)
     if save_dir:  # avoid error if save_path is just a filename
         os.makedirs(save_dir, exist_ok=True)
+    plt.legend(loc='upper right', frameon=True)
+    plt.tight_layout()
+    plt.savefig(plot_dir+".pdf", dpi=300, bbox_inches='tight')
+    plt.savefig(plot_dir+".png", dpi=300, bbox_inches='tight')
+    plt.close()
+
+    return True
+
+def compute_tau_s(omega, delta, z1_zero=1.43, b=317):
+    """
+    Compute the tau_s lifetime.
+
+    Parameters:
+        delta_abs (float): Absorber superconducting gap [eV or J]
+        delta_kid (float): KID superconducting gap [eV or J]
+        tau_factor (float): Scaling factor [s·eV^3]
+        z1_zero = 1.43 # renormalization factor 
+        # al_b = 0.317*1e-3 # mev**-2 
+        al_b = 317 # ev**-2 
+
+    Returns:
+        float: tau_s in seconds
+    """
+    hbar_ev = hbar / electron_volt #ev*s
+    kb_ev = Boltzmann / e #ev/k
+
+    tau_factor = 3*z1_zero*hbar_ev/(2*math.pi*b) # mev^3/s
+
+    # t_c = 1.2 # k 
+    # tau_0 = z1_zero*hbar_ev/(2*math.pi*al_b)/(kb_ev*t_c)**3
+
+    tau_s = tau_factor/omega**3*(1-(delta/omega)**2)**(-3/2) #s
+    return tau_s
+
+def plotTau_s(plot_dir, delta_al=0.2*1e-3, delta_hf=0.04*1e-3, tau_s_target_list=[12.5*1e-6, 0.058*1e-6]): 
+    # delta_al = 0.2*1e-3 # eV
+    # delta_hf = 0.04*1e-3 # ev
+    delta_over = np.linspace(delta_hf*(1+1e-6), delta_al*(1-1e-6), 1000) # ev
+
+    plt.figure(figsize=(8, 6))
+    tau_s_abs_over = compute_tau_s(delta=delta_over, omega=delta_al)
+    tau_s_over_kid = compute_tau_s(delta=delta_hf, omega=delta_over)
+    plt.plot(delta_over*1e3, tau_s_abs_over*1e6, label=r'$\tau_{s}(abs\rightarrow overlap)$')
+    plt.plot(delta_over*1e3, tau_s_over_kid*1e6, label=r'$\tau_{s}(overlap\rightarrow kid)$')
+    plt.yscale('log')
+
+    # Find delta_over where tau_s crosses target
+    def find_crossing(xvals, yvals, target):
+        diff = np.abs(yvals - target)
+        idx = np.argmin(diff)
+        print(np.min(diff))
+        return xvals[idx]
+
+    # Draw horizontal lines and annotate for each target tau_s
+    for tau_s_target in tau_s_target_list:
+        delta_over_abs_over = find_crossing(delta_over, tau_s_abs_over, tau_s_target)
+        delta_over_over_kid = find_crossing(delta_over, tau_s_over_kid, tau_s_target)
+
+        # Horizontal line
+        long_label = fr'$\tau_s$={tau_s_target*1e6:.3g} $\mu$s'+'\n'+\
+                     fr'@$\Delta_{{over}}(abs\rightarrow overlap)$={delta_over_abs_over*1e3:.3f} meV'+'\n'+\
+                     fr'@$\Delta_{{over}}(overlap\rightarrow kid)$={delta_over_over_kid*1e3:.3f} meV'
+        plt.axhline(tau_s_target*1e6, color='gray', linestyle=':', label=long_label)
+
+    # Compute global minimum tau_s
+    min_taus_abs_over = np.min(tau_s_abs_over)
+    min_taus_over_kid = np.min(tau_s_over_kid)
+
+    # Global minimum
+    min_taus_global = min(min_taus_over_kid, min_taus_abs_over)
+
+    # Plot horizontal line at global minimum
+    plt.axhline(min_taus_global*1e6, color='black', linestyle='--', linewidth=1.0,
+                label=fr'Min $\tau_s$ = {min_taus_global*1e6:.3g} $\mu$s')
+
+    plt.xlabel(r'$\Delta_{over}$ (meV)')
+    plt.ylabel(r'$\tau_{s}$ ($\mu$s)')
+    plt.title(r'expected $\tau_{s}$')
+    # Major ticks at 10^0, 10^1, ...
+    # plt.gca().yaxis.set_major_locator(LogLocator(base=10.0, subs=None, numticks=10))
+    # plt.gca().yaxis.set_major_formatter(LogFormatter(base=10.0, labelOnlyBase=True))  # labels all major ticks like 10^0, 10^1
+
+    # Minor ticks at 2–9 in each decade
+    plt.gca().yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2, 10), numticks=100))
+    plt.grid(True)
+    
+    # Save figure
+    save_dir = os.path.dirname(plot_dir)
+    if save_dir:  # avoid error if save_path is just a filename
+        os.makedirs(save_dir, exist_ok=True)
+    plt.legend(loc='upper right', frameon=True)
     plt.tight_layout()
     plt.savefig(plot_dir+".pdf", dpi=300, bbox_inches='tight')
     plt.savefig(plot_dir+".png", dpi=300, bbox_inches='tight')
@@ -290,19 +262,43 @@ def plotDiffusionEff(d_diffuse, tau_decay, tau_trap, l_abs_list, plot_dir,
     return True
 
 def main():
-    ld = 300*1e-6 # m
-    ld_over = 50*1e-6 # m
+    # #################################################### 
+    # #################################################### 
+    # #################################################### 7/7/2025 nominal comb:)) 
+    # # Define ranges (in meters)
+    # l_over_vals = np.linspace(1e-6, 40e-6, 100)  # 1 μm to 40 μm
+    # w_over_vals = np.linspace(1e-6, 100e-6, 100)  # 1 μm to 100 μm
 
-    d_diffuse = 0.02 #m^2/s
-    d_diffuse_over = d_diffuse/6
+    # # Create 2D meshgrid
+    # l_over, w_over = np.meshgrid(l_over_vals, w_over_vals)  # L and W both have shape (100, 100)
+    # print(l_over, w_over)
 
-    tau_decay = ld**2/d_diffuse #s
-    tau_decay_over = ld_over**2/d_diffuse_over #s
-    
-    la = 500*1e-6 # m
-    la_over = 13.9*1e-6 # m
-    tau_trap = la**2/d_diffuse # m/s
-    tau_trap_over = la_over**2/d_diffuse_over # m/s
+    # title = 'comb_diffusion'
+    # plot_dir = "output/2025-7-7-diffusion-eff-second/"
+    # eff_array, eff_array_abs, eff_array_over = get2DEff(diffuse_config.param_dict_abs, 
+    #     diffuse_config.param_dict_over, l_over, w_over)
+    # plot2DEff(eff_array, l_over, w_over, plot_dir+title, 
+    #     diffuse_config.param_dict_abs, diffuse_config.param_dict_over, eff_array_abs, eff_array_over)
+
+    #################################################### 
+    #################################################### 
+    #################################################### 7/8/2025 check tau more! 
+    title = 'tau_a_expected'
+    plot_dir = "output/2025-7-8-combdeff-taus/"
+    plotTau_a(plot_dir+title, diffuse_config.param_dict_abs["tau_trap"]*1e6, 600)
+    title = 'tau_s_expected'
+    plotTau_s(plot_dir+title)
+    title = 'tau_s_expected_w'
+    plotTau_s(plot_dir+title, delta_hf=0.015*1e-3)
+
+    ########################################## tau_s config 
+    delta_al = 0.2*1e-3 # eV
+    delta_hf = 0.04*1e-3 # ev
+    delta_over = (delta_hf+delta_al)/2 # mev
+
+    tau_s_overlap = compute_tau_s(delta=delta_over, omega=delta_al)
+    tau_s_kid = compute_tau_s(delta=delta_hf, omega=delta_over)
+    print(delta_over, tau_s_overlap*6**3, tau_s_overlap, tau_s_kid)
 
     # Define ranges (in meters)
     l_over_vals = np.linspace(1e-6, 40e-6, 100)  # 1 μm to 40 μm
@@ -311,24 +307,12 @@ def main():
     # Create 2D meshgrid
     l_over, w_over = np.meshgrid(l_over_vals, w_over_vals)  # L and W both have shape (100, 100)
 
-    print(tau_decay, tau_trap)
-    print(d_diffuse_over, tau_decay_over, tau_trap_over)
-    print(l_over, w_over)
-
-    param_dict_abs = {"d_diffuse": d_diffuse, 
-    "tau_trap": tau_trap,
-    "tau_decay": tau_decay
-    }
-    param_dict_over = {"d_diffuse_over": d_diffuse_over, 
-    "tau_trap_over": tau_trap_over,
-    "tau_decay_over": tau_decay_over
-    }
-
-    title = 'comb_diffusion'
-    plot_dir = "output/2025-7-7-diffusion-eff-second/"
-    eff_array, eff_array_abs, eff_array_over = get2DEff(param_dict_abs, param_dict_over, l_over, w_over)
+    # title = 'large_tau_trap_over'
+    title = 'large_tau_decay'
+    eff_array, eff_array_abs, eff_array_over = get2DEff(diffuse_config.param_dict_abs, 
+        diffuse_config.param_dict_over, l_over, w_over)
     plot2DEff(eff_array, l_over, w_over, plot_dir+title, 
-        param_dict_abs, param_dict_over, eff_array_abs, eff_array_over)
+        diffuse_config.param_dict_abs, diffuse_config.param_dict_over, eff_array_abs, eff_array_over)
 
 
 if __name__ == "__main__":
